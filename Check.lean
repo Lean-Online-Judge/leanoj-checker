@@ -62,7 +62,9 @@ def main (args : List String) : IO UInt32 := do
           IO.println "solution not found"
           return 46
         | some sol =>
-          if templ.type != sol.type then
+          Prod.fst <$> (Lean.Core.CoreM.toIO · {fileName := "", fileMap := default} {env := submEnv}) do
+          Lean.Meta.MetaM.run' do
+          if not (← Lean.Meta.isDefEq templ.type sol.type) then
             IO.println "solution type mismatch"
             return 47
           else
