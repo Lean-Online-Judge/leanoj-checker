@@ -11,3 +11,8 @@ rev = "v4.27.0"
 name = "check"
 root = "Check"
 supportInterpreter = true
+
+[[lean_exe]]
+name = "xyzzy"
+root = "Xyzzy"
+supportInterpreter = true
