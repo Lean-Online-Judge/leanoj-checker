@@ -1,49 +1,71 @@
 import Lean.CoreM
 import Lean.Replay
+import Lean.Meta
 import Lean.Environment
 import Lean.Util.CollectAxioms
+import Batteries.Tactic.Lint
 
-def main (args : List String) : IO UInt32 := do
+-- heavily inpsired by Compfiles
+
+unsafe def main (args : List String) : IO UInt32 := do
   let pref ← IO.currentDir
-  let LEAN_PATH : String := s!"{pref}/.lake/packages/batteries/.lake/build/lib/lean:{pref}/.lake/packages/Qq/.lake/build/lib/lean:{pref}/.lake/packages/aesop/.lake/build/lib/lean:{pref}/.lake/packages/proofwidgets/.lake/build/lib/lean:{pref}/.lake/packages/importGraph/.lake/build/lib/lean:{pref}/.lake/packages/mathlib/.lake/build/lib/lean:{pref}/.lake/packages/plausible/.lake/build/lib/lean:{pref}/.lake/packages/LeanSearchClient/.lake/build/lib/lean:"
+  let LEAN_PATH : String := String.join [
+    s!"{pref}/.lake/packages/batteries/.lake/build/lib/lean:",
+    s!"{pref}/.lake/packages/Qq/.lake/build/lib/lean:",
+    s!"{pref}/.lake/packages/aesop/.lake/build/lib/lean:",
+    s!"{pref}/.lake/packages/proofwidgets/.lake/build/lib/lean:",
+    s!"{pref}/.lake/packages/importGraph/.lake/build/lib/lean:",
+    s!"{pref}/.lake/packages/mathlib/.lake/build/lib/lean:",
+    s!"{pref}/.lake/packages/plausible/.lake/build/lib/lean:",
+    s!"{pref}/.lake/packages/LeanSearchClient/.lake/build/lib/lean:"
+  ]
+  let work_dir := args[0]!
+
+  IO.println "Compiling submission..."
 
   let child ← IO.Process.spawn {
     cmd := "lean"
-    args := #[args[1]!, "-o", "submission.olean"]
-    cwd := args[0]!
+    args := #["submission.lean", "-o", "submission.olean"]
+    cwd := work_dir
     env := #[⟨"LEAN_PATH", LEAN_PATH⟩]
+    -- stdout := .null
+    -- stderr := .null
   }
 
-  let submExitCode ← child.wait
-  if submExitCode ≠ 0 then
-    IO.println "compilation error"
-    return 44
+  let exit_code ← child.wait
+  if exit_code ≠ 0 then
+     IO.println "Compilation error"
+     IO.Process.exit 44
 
-  Lean.initSearchPath (← Lean.findSysroot) [args[0]!]
+  Lean.initSearchPath (← Lean.findSysroot) [work_dir]
 
-  let (mod, _) ← Lean.readModuleData (System.FilePath.join args[0]! "submission.olean")
-  let (_, state) ← Lean.importModulesCore mod.imports |>.run
-  let submEnv ← Lean.finalizeImport state #[{module := `submission}] {} 0 true true
+  IO.println "Checking declarations..."
 
-  let mut newConstants := {}
-  for name in mod.constNames, ci in mod.constants do
-    newConstants := newConstants.insert name ci
+  Lean.withImportModules #[{module := `submission}] {} (trustLevel := 1024) fun submission_env => do
+    let submission_ctx := { fileName := "", fileMap := default }
+    let submission_state := { env := submission_env }
+    Prod.fst <$> (Lean.Core.CoreM.toIO · submission_ctx submission_state) do
+      let decls ← Batteries.Tactic.Lint.getDeclsInPackage `submission
+      for decl in decls do
+        if ¬ decl.isInternal then
+          for ax in (← Lean.collectAxioms decl) do
+            if ax ∉ [``propext, ``Classical.choice, ``Quot.sound] then
+              IO.println "Forbidden axiom"
+              IO.Process.exit 46
 
-  let task ← IO.asTask (submEnv.replay newConstants)
-  match task.get with
-  | .error _ =>
-    IO.println "environment error"
-    return 45
-  | .ok submEnv =>
-    match submEnv.find? `solution with
-    | none =>
-      IO.println "solution not found"
-      return 46
-    | some sol =>
-      let (_, state) := ((Lean.CollectAxioms.collect sol.name).run submEnv).run {}
-      for ax in state.axioms do
-        if ax ∉ [`propext, `Quot.sound, `Classical.choice] then
-          IO.println "forbidden axiom"
-          return 48
-      IO.println ":tada"
-      return 42
+  IO.println "Replaying environment..."
+
+  let mod := Prod.fst <| ← Lean.readModuleData (← Lean.findOLean `submission)
+  let state := Prod.snd (← Lean.importModulesCore mod.imports |>.run)
+  let mut env ← Lean.finalizeImport state #[{module := `submission}] {} 0 true true
+  let mut infos : Std.HashMap Lean.Name Lean.ConstantInfo := {}
+  for decl in mod.constNames, info in mod.constants do
+    infos := infos.insert decl info
+
+  try
+    let _ ← env.replay infos
+  catch _ =>
+    IO.println "Environment error"
+    IO.Process.exit 47
+
+  return 42
