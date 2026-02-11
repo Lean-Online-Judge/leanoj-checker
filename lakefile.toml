@@ -13,6 +13,11 @@ root = "Check"
 supportInterpreter = true
 
 [[lean_exe]]
+name = "check_with_answer"
+root = "CheckWithAnswer"
+supportInterpreter = true
+
+[[lean_exe]]
 name = "xyzzy"
 root = "Xyzzy"
 supportInterpreter = true

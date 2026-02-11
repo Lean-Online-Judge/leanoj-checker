@@ -5,9 +5,9 @@ import Lean.Environment
 import Lean.Util.CollectAxioms
 import Batteries.Tactic.Lint
 
--- heavily inpsired by Compfiles
+-- heavily inspired by Compfiles
 
-unsafe def main (args : List String) : IO UInt32 := do
+def main (args : List String) : IO UInt32 := do
   let pref ← IO.currentDir
   let LEAN_PATH : String := String.join [
     s!"{pref}/.lake/packages/batteries/.lake/build/lib/lean:",
@@ -35,37 +35,34 @@ unsafe def main (args : List String) : IO UInt32 := do
   let exit_code ← child.wait
   if exit_code ≠ 0 then
      IO.println "Compilation error"
-     IO.Process.exit 44
+     IO.Process.exit 45
 
   Lean.initSearchPath (← Lean.findSysroot) [work_dir]
 
-  IO.println "Checking declarations..."
+  IO.println "Extracting constants..."
 
-  Lean.withImportModules #[{module := `submission}] {} (trustLevel := 1024) fun submission_env => do
-    let submission_ctx := { fileName := "", fileMap := default }
-    let submission_state := { env := submission_env }
-    Prod.fst <$> (Lean.Core.CoreM.toIO · submission_ctx submission_state) do
-      let decls ← Batteries.Tactic.Lint.getDeclsInPackage `submission
-      for decl in decls do
-        if ¬ decl.isInternal then
-          for ax in (← Lean.collectAxioms decl) do
-            if ax ∉ [``propext, ``Classical.choice, ``Quot.sound] then
-              IO.println "Forbidden axiom"
-              IO.Process.exit 46
+  let mod := Prod.fst (← Lean.readModuleData (← Lean.findOLean `submission))
+  let state := Prod.snd (← (Lean.importModulesCore mod.imports).run)
+  let mut base_env ← Lean.finalizeImport state #[{module := `submission}] {} 0 true true
 
+  let subm_consts := mod.constants
   IO.println "Replaying environment..."
 
-  let mod := Prod.fst <| ← Lean.readModuleData (← Lean.findOLean `submission)
-  let state := Prod.snd (← Lean.importModulesCore mod.imports |>.run)
-  let mut env ← Lean.finalizeImport state #[{module := `submission}] {} 0 true true
-  let mut infos : Std.HashMap Lean.Name Lean.ConstantInfo := {}
-  for decl in mod.constNames, info in mod.constants do
-    infos := infos.insert decl info
-
-  try
-    let _ ← env.replay infos
+  let mut tmp := {}
+  for const in subm_consts do
+    tmp := tmp.insert const.name const
+  let env ← try base_env.replay tmp
   catch _ =>
     IO.println "Environment error"
-    IO.Process.exit 47
+    IO.Process.exit 46
 
+  Prod.fst <$> (Lean.Meta.MetaM.toIO · {fileName := "", fileMap := default} {env := env}) do
+    IO.println "Checking axioms..."
+    for const in subm_consts do
+      for ax in ← Lean.collectAxioms const.name do
+        if ax ∉ [``propext, ``Classical.choice, ``Quot.sound] then
+          IO.println "Forbidden axiom"
+          IO.Process.exit 47
+
+  IO.println ":tada"
   return 42

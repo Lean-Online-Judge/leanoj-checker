@@ -37,6 +37,22 @@ def main (args : List String) : IO UInt32 := do
     IO.println "Judge error"
     IO.Process.exit 44
 
+  IO.println "Compiling answer..."
+
+  let child ← IO.Process.spawn {
+    cmd := "lean"
+    args := #["answer.lean", "-o", "answer.olean"]
+    cwd := work_dir
+    env := #[⟨"LEAN_PATH", LEAN_PATH⟩]
+    -- stdout := .null
+    -- stderr := .null
+  }
+
+  let exit_code ← child.wait
+  if exit_code ≠ 0 then
+    IO.println "Judge error"
+    IO.Process.exit 44
+
   IO.println "Compiling submission..."
 
   let child ← IO.Process.spawn {
@@ -58,6 +74,19 @@ def main (args : List String) : IO UInt32 := do
   IO.println "Extracting constants..."
 
   let temp_consts := (Prod.fst (← Lean.readModuleData (← Lean.findOLean `template))).constants
+  let ans_consts := (Prod.fst (← Lean.readModuleData (← Lean.findOLean `answer))).constants
+  let ans_def ← do
+    match ans_consts.find? (·.name = `answer) with
+    | none =>
+      IO.println "Judge error"
+      IO.Process.exit 44
+    | some const =>
+      match const with
+      | .defnInfo val =>
+        pure val
+      | _ =>
+        IO.println "Judge error"
+        IO.Process.exit 44
 
   let mod := Prod.fst (← Lean.readModuleData (← Lean.findOLean `submission))
   let state := Prod.snd (← (Lean.importModulesCore mod.imports).run)
@@ -96,7 +125,11 @@ def main (args : List String) : IO UInt32 := do
           IO.Process.exit 48
         match temp_const, subm_const with
         | .defnInfo temp_def, .defnInfo subm_def =>
-          if ¬ (← Lean.Meta.isDefEq subm_def.value temp_def.value) then
+          if subm_const.name = `answer then
+            if ¬ (← Lean.Meta.isDefEq subm_def.value ans_def.value) then
+              IO.println "Bad answer"
+              IO.Process.exit 49
+          else if ¬ (← Lean.Meta.isDefEq subm_def.value temp_def.value) then
             IO.println "Template mismatch"
             IO.Process.exit 48
         | .thmInfo temp_thm, .thmInfo subm_thm =>
