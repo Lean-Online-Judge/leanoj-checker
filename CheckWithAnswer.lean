@@ -34,7 +34,7 @@ def main (args : List String) : IO UInt32 := do
 
   let exit_code ← child.wait
   if exit_code ≠ 0 then
-    IO.println "Judge error"
+    IO.println "Автор лох"
     IO.Process.exit 44
 
   IO.println "Compiling answer..."
@@ -50,7 +50,7 @@ def main (args : List String) : IO UInt32 := do
 
   let exit_code ← child.wait
   if exit_code ≠ 0 then
-    IO.println "Judge error"
+    IO.println "Автор лох"
     IO.Process.exit 44
 
   IO.println "Compiling submission..."
@@ -78,14 +78,14 @@ def main (args : List String) : IO UInt32 := do
   let ans_def ← do
     match ans_consts.find? (·.name = `answer) with
     | none =>
-      IO.println "Judge error"
+      IO.println "Автор лох"
       IO.Process.exit 44
     | some const =>
       match const with
       | .defnInfo val =>
         pure val
       | _ =>
-        IO.println "Judge error"
+        IO.println "Автор лох"
         IO.Process.exit 44
 
   let mod := Prod.fst (← Lean.readModuleData (← Lean.findOLean `submission))

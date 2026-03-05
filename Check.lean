@@ -34,7 +34,7 @@ def main (args : List String) : IO UInt32 := do
 
   let exit_code ← child.wait
   if exit_code ≠ 0 then
-    IO.println "Judge error"
+    IO.println "Автор лох"
     IO.Process.exit 44
 
   IO.println "Compiling submission..."
@@ -86,6 +86,9 @@ def main (args : List String) : IO UInt32 := do
     IO.println "Checking declarations..."
 
     for temp_const in temp_consts do
+      if temp_const.name = `answer then
+        IO.println "Автор лох"
+        IO.Process.exit 44
       match subm_consts.find? (·.name = temp_const.name) with
       | none =>
         IO.println "Template mismatch"
